@@ -3,3 +3,9 @@ resolver = "3"
 members = ["ftd-bin", "ftd-device"]
 
 [workspace.dependencies]
+anyhow = "1.0.102"
+crossbeam-channel = "0.5.15"
+evdev-rs = { version = "0.6.3", features = ["libevdev-1-10", "serde"] }
+libloading = "0.9.0"
+rusb = { version = "0.9.4", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
