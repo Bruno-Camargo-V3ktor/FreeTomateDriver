@@ -37,7 +37,8 @@ impl<T: UsbContext> Drop for USBDevice<T> {
 #[derive(Hash, Clone)]
 pub struct InterfaceInfo {
     pub number: u8,
-    pub endpoint: u8,
+    pub endpoints_in: Vec<u8>,
+    pub endpoints_out: Vec<u8>,
 }
 
 struct MessageDevice {
@@ -65,14 +66,14 @@ fn main() -> Result<()> {
 
     claim_interfaces(
         &mut usb_device.handle,
-        &[BUTTONS_INTERAFCE, TABLET_INTERFACE],
+        &[0, BUTTONS_INTERAFCE, TABLET_INTERFACE],
     )?;
 
     let mtm_1106_init = MessageDevice {
         request_type: 0x21,
         request: 0x09,
         value: 0x0302,
-        interface: TABLET_INTERFACE as u8,
+        interface: BUTTONS_INTERAFCE as u8,
         payload: vec![0x02, 0x02, 0xb5, 0x02, 0x00, 0x00, 0x00, 0x00],
         timeout: Duration::from_secs(1),
     };
@@ -83,12 +84,13 @@ fn main() -> Result<()> {
         match read_device(
             &mut usb_device.handle,
             usb_device.interfaces.get(&2).unwrap(),
-            100,
+            8,
+            1,
         ) {
             Ok((id, bytes)) => println!("Interface: {id} || Bytes: {bytes:02X?}"),
             Err(rusb::Error::Timeout) => {
-                print!(".");
-                io::stdout().flush().unwrap();
+                //print!(".");
+                //io::stdout().flush().unwrap();
             }
             Err(e) => {
                 println!("Erro fatal na leitura: {:?}", e);
@@ -99,12 +101,13 @@ fn main() -> Result<()> {
         match read_device(
             &mut usb_device.handle,
             usb_device.interfaces.get(&1).unwrap(),
-            10,
+            8,
+            1,
         ) {
             Ok((id, bytes)) => println!("Interface: {id} || Bytes: {bytes:02X?}"),
             Err(rusb::Error::Timeout) => {
-                print!(".");
-                io::stdout().flush().unwrap();
+                //print!(".");
+                //io::stdout().flush().unwrap();
             }
             Err(e) => {
                 println!("Erro fatal na leitura: {:?}", e);
@@ -130,13 +133,25 @@ fn open_device<T: UsbContext>(context: &mut T, vid: u16, pid: u16) -> Result<Opt
             for int in config_descriptor.interfaces() {
                 let number = int.number();
                 for desc in int.descriptors() {
+                    let mut endpoints_in = vec![];
+                    let mut endpoints_out = vec![];
                     for endpoint in desc.endpoint_descriptors() {
                         if endpoint.direction() == Direction::In {
-                            let endpoint = endpoint.address();
-                            interfaces.insert(number, InterfaceInfo { number, endpoint });
-                            break;
+                            endpoints_in.push(endpoint.address());
+                        }
+
+                        if endpoint.direction() == Direction::Out {
+                            endpoints_out.push(endpoint.address());
                         }
                     }
+                    interfaces.insert(
+                        number,
+                        InterfaceInfo {
+                            number,
+                            endpoints_in,
+                            endpoints_out,
+                        },
+                    );
                 }
             }
 
@@ -181,15 +196,20 @@ fn send_to_device<T: UsbContext>(
 fn read_device<T: UsbContext>(
     handle: &mut DeviceHandle<T>,
     interface: &InterfaceInfo,
+    bytes: usize,
     timeout: u64,
 ) -> RusbResult<(u8, Vec<u8>)> {
-    let mut buffer = vec![0; 64];
+    let mut buffer = vec![0; bytes];
+    let mut res = Ok(0);
 
-    let reads = handle.read_interrupt(
-        interface.endpoint,
-        &mut buffer,
-        Duration::from_millis(timeout),
-    )?;
-    println!("{reads}");
-    Ok((interface.number, buffer[..reads].to_vec()))
+    for endpoint in &interface.endpoints_in {
+        res = handle.read_interrupt(*endpoint, &mut buffer, Duration::from_millis(timeout));
+
+        if let Ok(bytes_read) = &res {
+            return Ok((interface.number, buffer[..(*bytes_read)].to_vec()));
+        }
+    }
+
+    let bytes_read = res?;
+    Ok((interface.number, buffer[..bytes_read].to_vec()))
 }
