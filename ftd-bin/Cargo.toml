@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = { workspace = true }
 crossbeam-channel = { workspace = true }
+ctrlc = "3.4"
 evdev-rs = { workspace = true }
 libloading = { workspace = true }
 rusb = { workspace = true }
