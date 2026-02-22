@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    io::{self, Write},
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
@@ -11,6 +10,7 @@ use rusb::{Context, Device, DeviceHandle, Direction, Result as RusbResult, UsbCo
 const VENDOR_ID: u16 = 0x08f2;
 const PRODUCT_ID: u16 = 0x6811;
 
+const MASS_STORAGE: u8 = 0;
 const BUTTONS_INTERAFCE: u8 = 1;
 const TABLET_INTERFACE: u8 = 2;
 
@@ -45,7 +45,7 @@ struct MessageDevice {
     pub request_type: u8,
     pub request: u8,
     pub value: u16,
-    pub interface: u8,
+    pub interface: u16,
     pub payload: Vec<u8>,
     pub timeout: Duration,
 }
@@ -66,26 +66,29 @@ fn main() -> Result<()> {
 
     claim_interfaces(
         &mut usb_device.handle,
-        &[0, BUTTONS_INTERAFCE, TABLET_INTERFACE],
+        &[MASS_STORAGE, BUTTONS_INTERAFCE, TABLET_INTERFACE],
     )?;
 
-    let mtm_1106_init = MessageDevice {
+    std::thread::sleep(Duration::from_millis(500));
+
+    let magic_packet = MessageDevice {
         request_type: 0x21,
         request: 0x09,
-        value: 0x0302,
-        interface: BUTTONS_INTERAFCE as u8,
-        payload: vec![0x02, 0x02, 0xb5, 0x02, 0x00, 0x00, 0x00, 0x00],
+        value: 0x0202,
+        interface: 2,
+        payload: vec![0x02, 0x01],
         timeout: Duration::from_secs(1),
     };
+    let _ = send_to_device(&mut usb_device.handle, &magic_packet);
 
-    send_to_device(&mut usb_device.handle, &mtm_1106_init)?;
+    std::thread::sleep(Duration::from_millis(500));
 
     while running.load(std::sync::atomic::Ordering::SeqCst) {
         match read_device(
             &mut usb_device.handle,
-            usb_device.interfaces.get(&2).unwrap(),
+            usb_device.interfaces.get(&BUTTONS_INTERAFCE).unwrap(),
             8,
-            1,
+            10,
         ) {
             Ok((id, bytes)) => println!("Interface: {id} || Bytes: {bytes:02X?}"),
             Err(rusb::Error::Timeout) => {
@@ -100,9 +103,9 @@ fn main() -> Result<()> {
 
         match read_device(
             &mut usb_device.handle,
-            usb_device.interfaces.get(&1).unwrap(),
+            usb_device.interfaces.get(&TABLET_INTERFACE).unwrap(),
             8,
-            1,
+            10,
         ) {
             Ok((id, bytes)) => println!("Interface: {id} || Bytes: {bytes:02X?}"),
             Err(rusb::Error::Timeout) => {
@@ -185,7 +188,7 @@ fn send_to_device<T: UsbContext>(
         message.request_type,
         message.request,
         message.value,
-        message.interface as u16,
+        message.interface,
         &message.payload,
         message.timeout,
     )?;
